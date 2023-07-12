@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import pysam
 import json
@@ -230,7 +232,7 @@ def decode_variants_gene(
     is_variant = self._find_variants(pos['minor'], reference, predicted)
 
     variants = []
-    runs = medaka.rle.rle(is_variant)
+    runs = medaka.common.rle(is_variant)
     runs = runs[np.where(runs['value'])]
     for rlen, rstart, is_var in runs:
         rend = rstart + rlen

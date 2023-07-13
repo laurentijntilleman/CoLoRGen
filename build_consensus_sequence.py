@@ -10,7 +10,7 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
-def get_breakpoints(bam_input):
+def get_breakpoints(bam_input,chromosome):
     bamfile = pysam.AlignmentFile(bam_input)
     breakpoint_dict = {'H1':{'del':pd.DataFrame(columns=['count']),'ins':pd.DataFrame(columns=['count'])},
                        'H2':{'del':pd.DataFrame(columns=['count']),'ins':pd.DataFrame(columns=['count'])}}
@@ -18,7 +18,7 @@ def get_breakpoints(bam_input):
         haplotype = read.query_name.split('_')[-1]
         breakpoint_position = int(read.query_name.split('_')[-2])
         breakpoint_chr = read.query_name.split(':')[1]
-        if breakpoint_chr == 'chr22' and read.reference_name == breakpoint_chr:
+        if breakpoint_chr == chromosome and read.reference_name == breakpoint_chr:
             if breakpoint_position == 1:
                 breakpoint_start = read.reference_start + read.reference_length
                 breakpoint_stop = int(read.query_name.split(':')[2].split('-')[0])
@@ -32,10 +32,6 @@ def get_breakpoints(bam_input):
                 break_type = 'del'
             elif breakpoint_stop < breakpoint_start:
                 break_type = 'ins'
-            else:
-                logging.error('Error: no break_type!')
-                logging.error(read)
-                break
             if haplotype not in breakpoint_dict:
                 breakpoint_dict[haplotype]={'del':pd.DataFrame(columns=['count']),'ins':pd.DataFrame(columns=['count'])}
             if f'{breakpoint_chr}:{breakpoint_start}-{breakpoint_stop}' not in breakpoint_dict[haplotype][break_type].index:
@@ -48,12 +44,14 @@ def build_consensus(breakpoint_dict,fasta_file,target_chr,target_start,target_st
     logging.info('Load reference genome')
     ref_fasta = {record.id:record for record in SeqIO.parse(fasta_file,'fasta')}
     logging.info('Reads loaded')
+    sequences = []
     for haplotype in breakpoint_dict:
         logging.debug(f'Haplotype {haplotype}')
         deletions = list(breakpoint_dict[haplotype]['del'].index[breakpoint_dict[haplotype]['del']['count'] > 2])
         if len(deletions) > 1:
             del_ok = []
             for deletion in deletions:
+                del_chr = deletion.split(':')[0]
                 del_start = deletion.split(':')[1].split('-')[0]
                 del_stop = deletion.split('-')[1]
                 if del_ok == []:
@@ -61,6 +59,7 @@ def build_consensus(breakpoint_dict,fasta_file,target_chr,target_start,target_st
                 else:
                     for count in range(len(del_ok)):
                         deletion_ok = del_ok[count]
+                        del_ok_chr = deletion_ok.split(':')[0]
                         del_ok_start = deletion_ok.split(':')[1].split('-')[0]
                         del_ok_stop = deletion_ok.split('-')[1]
                         if del_ok_stop < del_start or del_ok_start > del_stop:
@@ -79,6 +78,7 @@ def build_consensus(breakpoint_dict,fasta_file,target_chr,target_start,target_st
         if len(insertions) > 1:
             ins_ok = []
             for instertion in insertions:
+                ins_chr = instertion.split(':')[0]
                 ins_start = instertion.split(':')[1].split('-')[0]
                 ins_stop = instertion.split('-')[1]
                 if ins_ok == []:
@@ -86,6 +86,7 @@ def build_consensus(breakpoint_dict,fasta_file,target_chr,target_start,target_st
                 else:
                     for count in range(len(ins_ok)):
                         instertion_ok = ins_ok[count]
+                        ins_ok_chr = instertion_ok.split(':')[0]
                         ins_ok_start = instertion_ok.split(':')[1].split('-')[0]
                         ins_ok_stop = instertion_ok.split('-')[1]
                         if ins_ok_stop > ins_start or ins_ok_start < ins_stop:
@@ -131,9 +132,7 @@ if __name__ == "__main__":
     # input
     parser = argparse.ArgumentParser(description='get second alignments')
     parser.add_argument('--log_level', metavar='log_level', dest='log_level',
-                        type=str, help='log level')
-    parser.add_argument('--log_file', metavar='log_file', dest='log_file',
-                        type=str, help='log file')
+                        type=str, help='log level', default= "INFO")
     parser.add_argument('-i','--input', metavar='bam', dest='sample_in',
                         type=str, help='path to the mapped reads bam')
     parser.add_argument('-o','--output', metavar='prefix', dest='sample_out',
@@ -152,13 +151,13 @@ if __name__ == "__main__":
     # logging
     log_numeric_level = getattr(logging, args.log_level.upper(), None)
     if not isinstance(log_numeric_level, int):
-        raise ValueError('Invalid log level: %s' % args.log_level)
-    logging.basicConfig(level=log_numeric_level, filename=args.log_file,
+        raise ValueError('Invalid log level: %s' % loglevel)
+    logging.basicConfig(level=log_numeric_level,
                         format='%(asctime)s %(message)s')
 
     logging.info('Start find breakpoints')
     # running program
-    breakpoint_dict = get_breakpoints(args.sample_in)
+    breakpoint_dict = get_breakpoints(args.sample_in,args.target_chr)
     with open(f'{args.sample_out}_breakpoints.txt','w') as fh:
         fh.write('Break points of the different haplotypes')
         for h in breakpoint_dict:

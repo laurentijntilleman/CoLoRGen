@@ -4,15 +4,31 @@
 import logging
 import argparse
 import pysam
+from itertools import groupby
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
+
+def query_len(cigar_string):
+    """
+    Given a CIGAR string, return the number of bases consumed from the
+    query sequence.
+    """
+    read_consuming_ops = ("M", "I", "=", "X")
+    result = 0
+    cig_iter = groupby(cigar_string, lambda chr: chr.isdigit())
+    for _, length_digits in cig_iter:
+        length = int(''.join(length_digits))
+        op = next(next(cig_iter)[1])
+        if op in read_consuming_ops:
+            result += length
+    return result
 
 if __name__ == "__main__":
     # input
     parser = argparse.ArgumentParser(description='get second alignments')
     parser.add_argument('--log_level', metavar='log_level', dest='log_level',
-                        type=str, help='log level')
+                        type=str, help='log level', default= "INFO")
     parser.add_argument('--log_file', metavar='log_file', dest='log_file',
                         type=str, help='log file')
     parser.add_argument('-i','--input', metavar='bam', dest='sample_in',
@@ -36,19 +52,21 @@ if __name__ == "__main__":
     sequences2 = []
     for read in bamfile.fetch():
         if read.mapq != 0:
-            out_file.write(read)
-            if read.reference_name == 'H1':
-                sequences1.append(SeqRecord(seq=Seq(read.seq),
-                                            id = read.query_name,
-                                            description = "",
-                                            letter_annotations = {'phred_quality':list(read.query_qualities)}
-                                           ))
-            if read.reference_name == 'H2':
-                sequences2.append(SeqRecord(seq=Seq(read.seq),
-                                            id = read.query_name,
-                                            description = "",
-                                            letter_annotations = {'phred_quality':list(read.query_qualities)}
-                                           ))
+            if not read.is_secondary and not read.is_supplementary:
+                if query_len(read.cigarstring) > 1000:
+                    out_file.write(read)
+                    if read.reference_name == 'H1':
+                        sequences1.append(SeqRecord(seq=Seq(read.seq),
+                                                    id = read.query_name,
+                                                    description = "",
+                                                    letter_annotations = {'phred_quality':list(read.query_qualities)}
+                                                ))
+                    if read.reference_name == 'H2':
+                        sequences2.append(SeqRecord(seq=Seq(read.seq),
+                                                    id = read.query_name,
+                                                    description = "",
+                                                    letter_annotations = {'phred_quality':list(read.query_qualities)}
+                                                ))
     out_file.close()
     SeqIO.write(sequences1,f'{args.sample_out}_H1.fastq','fastq')
     SeqIO.write(sequences2,f'{args.sample_out}_H2.fastq','fastq')

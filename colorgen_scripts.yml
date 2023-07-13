@@ -1,0 +1,11 @@
+name: colorgen_scripts
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python
+  - pysam
+  - biopython
+  - pandas
+

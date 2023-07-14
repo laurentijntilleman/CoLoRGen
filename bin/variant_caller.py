@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+
+# packages
 import argparse
 import pysam
 import json
@@ -8,7 +11,7 @@ import numpy as np
 import pandas as pd
 from itertools import groupby
 import types
-from gtfparse import read_gtf
+import re
 import os
 
 def target_len(cigar_string):
@@ -230,7 +233,7 @@ def decode_variants_gene(
     is_variant = self._find_variants(pos['minor'], reference, predicted)
 
     variants = []
-    runs = medaka.rle.rle(is_variant)
+    runs = medaka.common.rle(is_variant)
     runs = runs[np.where(runs['value'])]
     for rlen, rstart, is_var in runs:
         rend = rstart + rlen
@@ -327,8 +330,15 @@ class ConvertCoordinates():
 
     def _load_exon_data(self,transcript_name):
         if self._exon_table.empty:
-            df = read_gtf(self.args.ref_gtf)
-            self._exon_table = df[df['feature'] == 'exon']
+            exon_rows = []
+            with open(self.args.ref_gtf) as fh:
+                for line in fh:
+                    if 'transcript_name' in line and 'exon' in line:
+                        line_split = line.split('\t')
+                        features = line_split[-1]
+                        feature_dict = dict(re.findall(r'(\S+)\s+\"?([\w.-]+)\"?;', features))
+                        exon_rows.append([feature_dict['transcript_name'],feature_dict['exon_number'], int(line_split[3]), int(line_split[4])])
+            self._exon_table = pd.DataFrame(exon_rows, columns=['transcript_name','exon_number', 'start', 'end'])
         df_gene = self._exon_table[self._exon_table['transcript_name'] == transcript_name]
         exon_dict = dict()
         for row in df_gene.index:
@@ -417,7 +427,7 @@ class ConvertCoordinates():
                     header_count += 1
                 else:
                     break
-        self.variants = pd.read_csv(hap_vcf,sep='\t',header=header_count).append(self._convert_extra_varaints(),ignore_index=True).sort_values(by=['#CHROM','POS'])
+        self.variants = pd.concat([pd.read_csv(hap_vcf,sep='\t',header=header_count),self._convert_extra_varaints()],ignore_index=True).sort_values(by=['#CHROM','POS'])
         self._star_alleles()
         with open(args.gene_json) as fh:
             data = json.loads(fh.read())
@@ -615,13 +625,13 @@ class ConvertCoordinates():
                             true_variants_counter = self.gene_dict[haplotype][gene]['len_true_variants']
                             df=pd.DataFrame({'Number': true_variants})
                             df1 = pd.DataFrame(df['Number'].value_counts())
-                            df1['Count']=df1['Number'].index
-                            fh.write(f'{df1.Number.max()} of the {true_variants_counter} star allele variants are of these haplotypes\n')
-                            haplotypes = list(df1[df1['Number']==df1.Number.max()]['Count'])
+                            df1['Count']=df1['count'].index
+                            fh.write(f"{df1['count'].max()} of the {true_variants_counter} star allele variants are of these haplotypes\n")
+                            haplotypes = list(df1[df1['count']==df1['count'].max()]['Count'])
                             for haplo in haplotypes:
-                                if len(self.variant_dict_star[haplo]) > df1.Number.max():
+                                if len(self.variant_dict_star[haplo]) > df1['count'].max():
                                     fh.write(f'{haplo} has more variants than in sample: {len(self.variant_dict_star[haplo])}\n')
-                                elif len(self.variant_dict_star[haplo]) == df1.Number.max():
+                                elif len(self.variant_dict_star[haplo]) == df1['count'].max():
                                     fh.write(f'{haplo} is the correct haplotype\n')
                                 else:
                                     fh.write(f'{haplo} has less variants than in sample: {len(self.variant_dict_star[haplo])}\n')

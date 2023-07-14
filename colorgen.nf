@@ -15,6 +15,24 @@ process index_fasta {
   """
  }
 
+ process build_gene{
+  conda 'colorgen_scripts.yml'
+
+  input:
+    path gene_json
+    tuple path(index), path(index_fai)
+
+  output:
+    path "output/*"
+
+  """
+    mkdir output
+    build_gene.py -i $gene_json -o output -r $index
+  """
+
+
+ }
+
 
 // align the reads to the reference geneome
 process align {
@@ -239,13 +257,13 @@ process align_concensus_3 {
     tuple val(chrom), val(start), val(end), val(region) 
     
   output:
-    tuple path("${region}_C3_clean.bam"), path("${region}_C3_clean.bam.bai"), path("${region}.fasta")
+    tuple path("${region}_C3_clean.bam"), path("${region}_C3_clean.bam.bai"), path("${region}_consensus.fasta")
  
  """
-  cat ${region}_C3_H1/consensus.fasta ${region}_C3_H2/consensus.fasta > ${region}.fasta
+  cat ${region}_C3_H1/consensus.fasta ${region}_C3_H2/consensus.fasta > ${region}_consensus.fasta
   cat $clean_2_H1_fastq $clean_2_H2_fastq | gzip > clean_2.fastq.gz
 
-  minimap2 -t $params.threads -a ${region}.fasta clean_2.fastq.gz -2 | samtools view -Sb | samtools sort > sorted.bam
+  minimap2 -t $params.threads -a ${region}_consensus.fasta clean_2.fastq.gz -2 | samtools view -Sb | samtools sort > sorted.bam
   samtools index sorted.bam
   clean_bam.py -i sorted.bam -o ${region}_C3_clean
   samtools index ${region}_C3_clean.bam
@@ -268,7 +286,7 @@ process align_genes {
 
   """
   bowtie2-build $fasta sample
-  bowtie2 -a -x sample -p $params.threads -f $gene_folder_fasta | samtools view -Sb | samtools sort > ${region}_sorted.bam
+  bowtie2 -a -x sample -p $params.threads -f genes.fasta | samtools view -Sb | samtools sort > ${region}_sorted.bam
   samtools index ${region}_sorted.bam
 
   """
@@ -301,18 +319,20 @@ process annotate_variants {
     tuple path(gene_sorted_bam), path(gene_sorted_bam_bai)
     path probs
     tuple val(chrom), val(start), val(end), val(region) 
-    path ref_folder 
+    path star_alleles
+    path gene_json
 
   output:
     path "${region}_*"
 
   """
-    variant_caller.py $fasta $gene_sorted_bam $probs ${ref_folder}/${region}.*.haplotypes.tsv ${region} $params.reference_gtf
+    variant_caller.py $fasta $gene_sorted_bam $probs $star_alleles $gene_json ${region} $params.reference_gtf
   """
 }
 
 workflow {
   index             = index_fasta(params.index)
+  targeted_genes    = build_gene(params.gene_json,index)
   bam_sorted        = align(index,Channel.fromPath(params.reads))
   region_bam        = split_bam(bam_sorted,bed_intervals)
   phase_bam         = phase_reads(region_bam,index)
@@ -326,7 +346,7 @@ workflow {
   consensus_3_H2    = polish_consensus2_H2(consensus_2_clean,consensus_2_H2,params.model_m,bed_intervals)
   consensus_3       = align_concensus_3(consensus_2_clean,consensus_3_H1,consensus_3_H2,bed_intervals)
   probs             = calculate_probs(consensus_3,params.model_m,bed_intervals)
-  aligned_genes     = align_genes(consensus_3,bed_intervals,params.gene_folder)
-  annotate_variants(consensus_3,aligned_genes,probs,bed_intervals,params.ref_folder)
+  aligned_genes     = align_genes(consensus_3,bed_intervals,targeted_genes)
+  annotate_variants(consensus_3,aligned_genes,probs,bed_intervals,params.star_alleles,params.gene_json)
 }
 

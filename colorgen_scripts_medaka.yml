@@ -1,18 +1,12 @@
-name: variant_caller
+name: medaka
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
   - python=3.9
-  - pysam
-  - biopython
-  - pandas
-  - samtools
-  - minimap2
-  - tabix
-  - py-bgzip
-  - gtfparse
+  - biopython=1.81
+  - pandas=2.0.3
   - pip
   - pip:
     - medaka==1.8.1

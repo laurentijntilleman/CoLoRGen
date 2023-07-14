@@ -5,8 +5,13 @@ channels:
   - defaults
 dependencies:
   - python=3.9
+  - pysam=0.21.0
   - biopython=1.81
   - pandas=2.0.3
+  - samtools=1.17
+  - minimap2=2.26
+  - tabix=1.11
+  - py-bgzip=0.4.0
   - pip
   - pip:
     - medaka==1.8.1
